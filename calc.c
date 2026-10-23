@@ -8,3 +8,24 @@
 #include <ctype.h>
 #include <errno.h>
 #include <sys/stat.h>
+
+int main(int argc, char *argv[]) {
+
+    const char *out_dir = NULL;
+    const char *input_path = NULL;
+
+    if (argc != 4) {
+        fprintf(stderr, "Usage: %s -o <out_dir> <input_path>\n", argv[0]);
+        return 1;
+    }
+
+    if (strcmp(argv[1], "-o") != 0) {
+        fprintf(stderr, "Error: Expected '-o' flag as the first argument.\n");
+        return 1;
+    }
+
+    out_dir = argv[2];
+    input_path = argv[3];
+
+    return 0;
+}
