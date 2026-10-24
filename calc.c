@@ -73,6 +73,32 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    char *p = buffer;
+    size_t line_num = 1;
+
+    while (*p != '\0') {
+        char *q = p;
+        while (*q != '\n' && *q != '\0') {
+            q++;
+        }
+
+        char *temp = p;
+        while (temp < q && (*temp == ' ' || *temp == '\t')) {
+            temp++;
+        }
+        
+        if (temp < q) {
+            size_t position = (size_t)(p - buffer + 1);
+            printf("Line %zu starts at position %zu\n", line_num, position);
+        }
+
+        p = q;
+        if (*p == '\n') {
+            p++;
+        }
+        line_num++;
+    }
+
     free(buffer);
 
     return 0;
