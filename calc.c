@@ -67,15 +67,17 @@ long long read_number(const char **p) {
     return value;
 }
 
-long long eval_line(const char *p) {
+long long eval_line(const char *p, const char *buffer) {
     skip_blanks(&p);
     long long total = read_number(&p);
 
     while (1) {
         skip_blanks(&p);
-        if (*p == '\n' || *p == '\0') {
-            break;
-        }
+    if (*p != '\n' && *p != '\0') {
+        long long pos = p - buffer + 1;
+        printf("Error position: %lld\n", pos);
+        return 0;
+    }
 
         char op = *p;
         if (op != '+' && op != '-') {
@@ -84,6 +86,13 @@ long long eval_line(const char *p) {
         p++;
 
         skip_blanks(&p);
+
+        if (!isdigit((unsigned char)*p)) {
+            long long pos = p - buffer + 1;
+            printf("Error position: %lld\n", pos);
+            return 0;
+        }
+
         long long n = read_number(&p);
 
         if (op == '+') {
@@ -170,7 +179,7 @@ int main(int argc, char *argv[]) {
         }
         
         if (temp < q) {
-            long long result = eval_line(p);
+            long long result = eval_line(p, buffer);
             fprintf(out, "%lld\n", result);
         }
 
