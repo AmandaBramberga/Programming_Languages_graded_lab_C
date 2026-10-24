@@ -67,39 +67,42 @@ long long read_number(const char **p) {
     return value;
 }
 
-// Uses global pointer offsets for precise token errors, exiting early to discard partial results and enforce all-or-nothing output.
-int eval_line(const char *p, const char *buffer, long long *result, size_t *err_pos) {
-    skip_blanks(&p);
+// primary is the only place that decides "an operand must start here", so every missing-operand error is detected in exactly one spot.
+int primary(const char **p, const char *buffer, long long *value, size_t *err_pos) {
+    skip_blanks(p);
+    if (!isdigit((unsigned char)**p)) {
+        *err_pos = (size_t)(*p - buffer + 1);
+        return 1;
+    }
+    *value = read_number(p);
+    return 0;
+}
 
-    if (!isdigit((unsigned char)*p)) {
-        *err_pos = (size_t)(p - buffer + 1);
+// expr evaluates operator chains, delegating operand parsing down to primary.
+int expr(const char **p, const char *buffer, long long *result, size_t *err_pos) {
+    long long total = 0;
+    
+    if (primary(p, buffer, &total, err_pos) != 0) {
         return 1;
     }
 
-    long long total = read_number(&p);
-
     while (1) {
-        skip_blanks(&p);
+        skip_blanks(p);
         
-        if (*p == '\n' || *p == '\r' || *p == '\0') {
+        if (**p == '\n' || **p == '\r' || **p == '\0') {
             break;
         }
 
-        char op = *p;
+        char op = **p;
         if (op != '+' && op != '-') {
-            *err_pos = (size_t)(p - buffer + 1);
+            break;
+        }
+        (*p)++;
+
+        long long n = 0;
+        if (primary(p, buffer, &n, err_pos) != 0) {
             return 1;
         }
-        p++;
-
-        skip_blanks(&p);
-
-        if (!isdigit((unsigned char)*p)) {
-            *err_pos = (size_t)(p - buffer + 1);
-            return 1;
-        }
-
-        long long n = read_number(&p);
 
         if (op == '+') {
             total += n;
@@ -108,8 +111,20 @@ int eval_line(const char *p, const char *buffer, long long *result, size_t *err_
         }
     }
 
+    *result = total;
+    return 0;
+}
+
+// eval_line is the only place that checks for leftover input, which is what catches unexpected tokens.
+int eval_line(const char *p, const char *buffer, long long *result, size_t *err_pos) {
+    long long total = 0;
+    
+    if (expr(&p, buffer, &total, err_pos) != 0) {
+        return 1;
+    }
+
     skip_blanks(&p);
-    if (*p != '\n' && *p != '\0') {
+    if (*p != '\n' && *p != '\r' && *p != '\0') {
         *err_pos = (size_t)(p - buffer + 1);
         return 1;
     }
