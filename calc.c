@@ -67,30 +67,36 @@ long long read_number(const char **p) {
     return value;
 }
 
-long long eval_line(const char *p, const char *buffer) {
+// Uses global pointer offsets for precise token errors, exiting early to discard partial results and enforce all-or-nothing output.
+int eval_line(const char *p, const char *buffer, long long *result, size_t *err_pos) {
     skip_blanks(&p);
+
+    if (!isdigit((unsigned char)*p)) {
+        *err_pos = (size_t)(p - buffer + 1);
+        return 1;
+    }
+
     long long total = read_number(&p);
 
     while (1) {
         skip_blanks(&p);
-    if (*p != '\n' && *p != '\0') {
-        long long pos = p - buffer + 1;
-        printf("Error position: %lld\n", pos);
-        return 0;
-    }
+        
+        if (*p == '\n' || *p == '\r' || *p == '\0') {
+            break;
+        }
 
         char op = *p;
         if (op != '+' && op != '-') {
-            break;
+            *err_pos = (size_t)(p - buffer + 1);
+            return 1;
         }
         p++;
 
         skip_blanks(&p);
 
         if (!isdigit((unsigned char)*p)) {
-            long long pos = p - buffer + 1;
-            printf("Error position: %lld\n", pos);
-            return 0;
+            *err_pos = (size_t)(p - buffer + 1);
+            return 1;
         }
 
         long long n = read_number(&p);
@@ -102,7 +108,14 @@ long long eval_line(const char *p, const char *buffer) {
         }
     }
 
-    return total;
+    skip_blanks(&p);
+    if (*p != '\n' && *p != '\0') {
+        *err_pos = (size_t)(p - buffer + 1);
+        return 1;
+    }
+
+    *result = total;
+    return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -167,6 +180,9 @@ int main(int argc, char *argv[]) {
     char *p = buffer;
     size_t line_num = 1;
 
+    int had_error = 0;
+    size_t error_pos_to_report = 0;
+
     while (*p != '\0') {
         char *q = p;
         while (*q != '\n' && *q != '\0') {
@@ -179,8 +195,16 @@ int main(int argc, char *argv[]) {
         }
         
         if (temp < q) {
-            long long result = eval_line(p, buffer);
-            fprintf(out, "%lld\n", result);
+            long long line_result = 0;
+            size_t err_pos = 0;
+
+            if (eval_line(p, buffer, &line_result, &err_pos) == 0) {
+                fprintf(out, "%lld\n", line_result);
+            } else {
+                had_error = 1;
+                error_pos_to_report = err_pos;
+                break;
+            }
         }
 
         p = q;
@@ -188,6 +212,13 @@ int main(int argc, char *argv[]) {
             p++;
         }
         line_num++;
+    }
+
+    if (had_error) {
+        out = freopen(path, "w", out);
+        if (out != NULL) {
+            fprintf(out, "ERROR:%zu\n", error_pos_to_report);
+        }
     }
 
     fclose(out);
