@@ -48,6 +48,50 @@ char *read_file(const char *path, size_t *out_len) {
     return buffer;
 }
 
+void skip_blanks(const char **p) {
+    while (**p == ' ' || **p == '\t') {
+        (*p)++;
+    }
+}
+
+long long read_number(const char **p) {
+    long long value = 0;
+    while (isdigit((unsigned char)**p)) {
+        value = value * 10 + (**p - '0');
+        (*p)++;
+    }
+    return value;
+}
+
+long long eval_line(const char *p) {
+    skip_blanks(&p);
+    long long total = read_number(&p);
+
+    while (1) {
+        skip_blanks(&p);
+        if (*p == '\n' || *p == '\0') {
+            break;
+        }
+
+        char op = *p;
+        if (op != '+' && op != '-') {
+            break;
+        }
+        p++;
+
+        skip_blanks(&p);
+        long long n = read_number(&p);
+
+        if (op == '+') {
+            total += n;
+        } else {
+            total -= n;
+        }
+    }
+
+    return total;
+}
+
 int main(int argc, char *argv[]) {
 
     const char *out_dir = NULL;
@@ -88,8 +132,8 @@ int main(int argc, char *argv[]) {
         }
         
         if (temp < q) {
-            size_t position = (size_t)(p - buffer + 1);
-            printf("Line %zu starts at position %zu\n", line_num, position);
+            long long result = eval_line(p);
+            printf("%lld\n", result);
         }
 
         p = q;
