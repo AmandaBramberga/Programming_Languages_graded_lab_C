@@ -9,6 +9,10 @@
 #include <errno.h>
 #include <sys/stat.h>
 
+#define NAME "amanda"
+#define LAST_NAME "bramberga"
+#define STUDENT_ID "251rdc071"
+
 char *read_file(const char *path, size_t *out_len) {
     FILE *in = fopen(path, "rb");
     if (in == NULL) {
@@ -117,6 +121,40 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    const char *base = strrchr(input_path, '/');
+    if (base != NULL) {
+        base++;
+    } else {
+        base = input_path;
+    }
+
+    size_t base_len = strlen(base);
+    if (base_len >= 4 && strcmp(base + base_len - 4, ".txt") == 0) {
+        base_len -= 4;
+    }
+
+    char path[4096];
+    int written = snprintf(path, sizeof(path), "%s/%.*s_%s_%s_%s.txt",
+                           out_dir, (int)base_len, base, NAME, LAST_NAME, STUDENT_ID);
+    if (written < 0 || (size_t)written >= sizeof(path)) {
+        fprintf(stderr, "Error: Output path truncated.\n");
+        free(buffer);
+        return 1;
+    }
+
+    if (mkdir(out_dir, 0755) != 0 && errno != EEXIST) {
+        fprintf(stderr, "Error: Failed to create output directory.\n");
+        free(buffer);
+        return 1;
+    }
+
+    FILE *out = fopen(path, "w");
+    if (out == NULL) {
+        fprintf(stderr, "Error: Failed to open output file for writing.\n");
+        free(buffer);
+        return 1;
+    }
+
     char *p = buffer;
     size_t line_num = 1;
 
@@ -133,7 +171,7 @@ int main(int argc, char *argv[]) {
         
         if (temp < q) {
             long long result = eval_line(p);
-            printf("%lld\n", result);
+            fprintf(out, "%lld\n", result);
         }
 
         p = q;
@@ -143,7 +181,8 @@ int main(int argc, char *argv[]) {
         line_num++;
     }
 
+    fclose(out);
     free(buffer);
-
+    
     return 0;
 }
