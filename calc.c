@@ -78,11 +78,57 @@ int primary(const char **p, const char *buffer, long long *value, size_t *err_po
     return 0;
 }
 
+// Term comes first because it binds * and / tighter than + and - by resolving them before expr.
+// Left-to-right works because the loop folds each term immediately, making 100 / 7 / 2 evaluate as (100 / 7) / 2.
+// Save operand_pos because division by zero needs to point to the start of the divisor operand, not the slash operator.
+int term(const char **p, const char *buffer, long long *result, size_t *err_pos) {
+    long long total = 0;
+    
+    if (primary(p, buffer, &total, err_pos) != 0) {
+        return 1;
+    }
+
+    while (1) {
+        skip_blanks(p);
+        
+        if (**p == '\n' || **p == '\r' || **p == '\0') {
+            break;
+        }
+
+        char op = **p;
+        if (op != '*' && op != '/') {
+            break;
+        }
+        (*p)++;
+
+        skip_blanks(p);
+        const char *op_ptr = *p;
+
+        long long n = 0;
+        if (primary(p, buffer, &n, err_pos) != 0) {
+            return 1;
+        }
+
+        if (op == '*') {
+            total *= n;
+        } else {
+            if (n == 0) {
+                *err_pos = (size_t)(op_ptr - buffer + 1);
+                return 1;
+            }
+            total /= n;
+        }
+    }
+
+    *result = total;
+    return 0;
+}
+
 // expr evaluates operator chains, delegating operand parsing down to primary.
 int expr(const char **p, const char *buffer, long long *result, size_t *err_pos) {
     long long total = 0;
     
-    if (primary(p, buffer, &total, err_pos) != 0) {
+    if (term(p, buffer, &total, err_pos) != 0) {
         return 1;
     }
 
@@ -100,7 +146,7 @@ int expr(const char **p, const char *buffer, long long *result, size_t *err_pos)
         (*p)++;
 
         long long n = 0;
-        if (primary(p, buffer, &n, err_pos) != 0) {
+        if (term(p, buffer, &n, err_pos) != 0) {
             return 1;
         }
 
