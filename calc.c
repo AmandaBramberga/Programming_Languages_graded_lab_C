@@ -9,6 +9,45 @@
 #include <errno.h>
 #include <sys/stat.h>
 
+char *read_file(const char *path, size_t *out_len) {
+    FILE *in = fopen(path, "rb");
+    if (in == NULL) {
+        return NULL;
+    }
+
+    if (fseek(in, 0, SEEK_END) != 0) {
+        fclose(in);
+        return NULL;
+    }
+    
+    long size = ftell(in);
+    if (size < 0) {
+        fclose(in);
+        return NULL;
+    }
+
+    rewind(in);
+
+    char *buffer = malloc(size + 1);
+    if (buffer == NULL) {
+        fclose(in);
+        return NULL;
+    }
+
+    size_t read_bytes = fread(buffer, 1, size, in);
+    if (read_bytes != (size_t)size) {
+        free(buffer);
+        fclose(in);
+        return NULL;
+    }
+
+    buffer[size] = '\0';
+    *out_len = (size_t)size;
+    fclose(in);
+    
+    return buffer;
+}
+
 int main(int argc, char *argv[]) {
 
     const char *out_dir = NULL;
@@ -26,6 +65,15 @@ int main(int argc, char *argv[]) {
 
     out_dir = argv[2];
     input_path = argv[3];
+
+    size_t len = 0;
+    char *buffer = read_file(input_path, &len);
+    if (buffer == NULL) {
+        fprintf(stderr, "Error: Could not open or read file '%s'\n", input_path);
+        return 1;
+    }
+
+    free(buffer);
 
     return 0;
 }
