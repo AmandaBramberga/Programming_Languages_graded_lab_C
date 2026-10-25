@@ -266,6 +266,36 @@ int eval_line(const char *p, const char *buffer, long long *result, size_t *err_
     return 0;
 }
 
+// Why the base-name helper strips trailing slashes for directories: otherwise paths ending in slashes (like labs/) would evaluate to an empty base name.
+const char *get_basename(const char *path, size_t *out_len, int is_dir) {
+    size_t len = strlen(path);
+    
+    if (is_dir) {
+        while (len > 1 && path[len - 1] == '/') {
+            len--;
+        }
+    }
+
+    const char *last_slash = NULL;
+    for (size_t i = 0; i < len; i++) {
+        if (path[i] == '/') {
+            last_slash = path + i;
+        }
+    }
+
+    const char *base = (last_slash != NULL) ? last_slash + 1 : path;
+    size_t base_len = len - (base - path);
+
+    if (!is_dir) {
+        if (base_len >= 4 && strcmp(base + base_len - 4, ".txt") == 0) {
+            base_len -= 4;
+        }
+    }
+
+    *out_len = base_len;
+    return base;
+}
+
 // Why process_file returns success (0) even for an ERROR: result: calculation errors are normal outputs, whereas non-zero is reserved for system/IO failures.
 int process_file(const char *input_path, const char *out_dir) {
     size_t len = 0;
@@ -275,17 +305,8 @@ int process_file(const char *input_path, const char *out_dir) {
         return 1;
     }
 
-    const char *base = strrchr(input_path, '/');
-    if (base != NULL) {
-        base++;
-    } else {
-        base = input_path;
-    }
-
-    size_t base_len = strlen(base);
-    if (base_len >= 4 && strcmp(base + base_len - 4, ".txt") == 0) {
-        base_len -= 4;
-    }
+    size_t base_len = 0;
+    const char *base = get_basename(input_path, &base_len, 0);
 
     char path[4096];
     int written = snprintf(path, sizeof(path), "%s/%.*s_%s_%s_%s.txt",
@@ -371,6 +392,7 @@ int main(int argc, char *argv[]) {
     const char *dir_path = NULL;
     const char *out_dir = NULL;
     const char *input_path = NULL;
+    char default_dir[4096];
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output-dir") == 0) {
@@ -420,11 +442,19 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Temporary placeholders for Step 3 and 4 features not yet fully implemented
     if (out_dir == NULL) {
-        fprintf(stderr, "Error: Default output folder not implemented yet.\n");
-        return 1;
+        size_t base_len = 0;
+        const char *base = get_basename(input_path, &base_len, 0);
+        // Why the default folder name omits the last name: it is a spec rule validated by tests.
+        int written = snprintf(default_dir, sizeof(default_dir), "%.*s_%s_%s",
+                               (int)base_len, base, NAME, STUDENT_ID);
+        if (written < 0 || (size_t)written >= sizeof(default_dir)) {
+            fprintf(stderr, "Error: Default output directory path truncated.\n");
+            return 1;
+        }
+        out_dir = default_dir;
     }
+
     if (dir_path != NULL) {
         fprintf(stderr, "Error: -d / --dir mode not implemented yet.\n");
         return 1;
