@@ -52,6 +52,9 @@ char *read_file(const char *path, size_t *out_len) {
     return buffer;
 }
 
+// Forward declaration needed because primary and expr call each other recursively.
+int expr(const char **p, const char *buffer, long long *result, size_t *err_pos);
+
 void skip_blanks(const char **p) {
     while (**p == ' ' || **p == '\t') {
         (*p)++;
@@ -68,8 +71,32 @@ long long read_number(const char **p) {
 }
 
 // primary is the only place that decides "an operand must start here", so every missing-operand error is detected in exactly one spot.
+// Why in primary: parens bind tightest, making a bracketed block a single operand.
+// Why expr/term stop quietly: they only look for their operators and ignore ')' naturally.
+// Why missing ) hits newline: expr reads to the end, leaving primary stranded at the line break.
+// Why extra ) is caught by leftover check: inner parsers ignore it, leaving eval_line to flag trailing junk.
 int primary(const char **p, const char *buffer, long long *value, size_t *err_pos) {
     skip_blanks(p);
+
+    if (**p == '(') {
+        (*p)++;
+        
+        if (expr(p, buffer, value, err_pos) != 0) {
+            return 1;
+        }
+        
+        skip_blanks(p);
+        
+        if (**p == ')') {
+            (*p)++;
+        } else {
+            *err_pos = (size_t)(*p - buffer + 1);
+            return 1;
+        }
+        
+        return 0;
+    }
+
     if (!isdigit((unsigned char)**p)) {
         *err_pos = (size_t)(*p - buffer + 1);
         return 1;

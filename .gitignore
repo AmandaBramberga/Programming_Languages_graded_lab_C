@@ -6,3 +6,8 @@ empty.txt
 ws.txt
 e[0-9].txt
 m*.txt
+p*.txt
+m*.txt
+z*.txt
+deep.txt
+results/
