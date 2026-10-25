@@ -13,6 +13,7 @@
 #define NAME "amanda"
 #define LAST_NAME "bramberga"
 #define STUDENT_ID "251rdc071"
+#define USAGE "Usage: calc [-d DIR | --dir DIR] [-o OUTDIR | --output-dir OUTDIR] [input.txt]\n"
 
 char *read_file(const char *path, size_t *out_len) {
     FILE *in = fopen(path, "rb");
@@ -367,15 +368,67 @@ int process_file(const char *input_path, const char *out_dir) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 4) {
-        fprintf(stderr, "Usage: %s -o <out_dir> <input_path>\n", argv[0]);
+    const char *dir_path = NULL;
+    const char *out_dir = NULL;
+    const char *input_path = NULL;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output-dir") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Error: Missing value for %s\n", argv[i]);
+                fprintf(stderr, "%s", USAGE);
+                return 1;
+            }
+            if (out_dir != NULL) {
+                fprintf(stderr, "Error: Duplicate output directory option.\n");
+                fprintf(stderr, "%s", USAGE);
+                return 1;
+            }
+            // Why value options consume the next argument: options take parameters as separate tokens in argv.
+            // Why you check i + 1 < argc first: prevents out-of-bounds memory reads when an option is missing its required value at the end of the argument list.
+            out_dir = argv[++i];
+        } else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--dir") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Error: Missing value for %s\n", argv[i]);
+                fprintf(stderr, "%s", USAGE);
+                return 1;
+            }
+            if (dir_path != NULL) {
+                fprintf(stderr, "Error: Duplicate directory option.\n");
+                fprintf(stderr, "%s", USAGE);
+                return 1;
+            }
+            dir_path = argv[++i];
+        } else if (argv[i][0] == '-') {
+            // Why an unrecognized -something is an error: starting with a hyphen designates a command-line flag rather than a positional filename argument.
+            fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
+            fprintf(stderr, "%s", USAGE);
+            return 1;
+        } else {
+            if (input_path != NULL) {
+                fprintf(stderr, "Error: Multiple input files provided.\n");
+                fprintf(stderr, "%s", USAGE);
+                return 1;
+            }
+            input_path = argv[i];
+        }
+    }
+
+    // Why validation happens after the loop: ensures option arguments can appear in any order (e.g. file before -o) before checking completeness.
+    if ((dir_path == NULL && input_path == NULL) || (dir_path != NULL && input_path != NULL)) {
+        fprintf(stderr, "%s", USAGE);
         return 1;
     }
 
-    if (strcmp(argv[1], "-o") != 0) {
-        fprintf(stderr, "Error: Expected '-o' flag as the first argument.\n");
+    // Temporary placeholders for Step 3 and 4 features not yet fully implemented
+    if (out_dir == NULL) {
+        fprintf(stderr, "Error: Default output folder not implemented yet.\n");
+        return 1;
+    }
+    if (dir_path != NULL) {
+        fprintf(stderr, "Error: -d / --dir mode not implemented yet.\n");
         return 1;
     }
 
-    return process_file(argv[3], argv[2]);
+    return process_file(input_path, out_dir);
 }
