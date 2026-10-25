@@ -265,28 +265,12 @@ int eval_line(const char *p, const char *buffer, long long *result, size_t *err_
     return 0;
 }
 
-int main(int argc, char *argv[]) {
-
-    const char *out_dir = NULL;
-    const char *input_path = NULL;
-
-    if (argc != 4) {
-        fprintf(stderr, "Usage: %s -o <out_dir> <input_path>\n", argv[0]);
-        return 1;
-    }
-
-    if (strcmp(argv[1], "-o") != 0) {
-        fprintf(stderr, "Error: Expected '-o' flag as the first argument.\n");
-        return 1;
-    }
-
-    out_dir = argv[2];
-    input_path = argv[3];
-
+// Why process_file returns success (0) even for an ERROR: result: calculation errors are normal outputs, whereas non-zero is reserved for system/IO failures.
+int process_file(const char *input_path, const char *out_dir) {
     size_t len = 0;
     char *buffer = read_file(input_path, &len);
     if (buffer == NULL) {
-        fprintf(stderr, "Error: Could not open or read file '%s'\n", input_path);
+        fprintf(stderr, "Error: Could not open or read file '%s': %s\n", input_path, strerror(errno));
         return 1;
     }
 
@@ -312,21 +296,19 @@ int main(int argc, char *argv[]) {
     }
 
     if (mkdir(out_dir, 0755) != 0 && errno != EEXIST) {
-        fprintf(stderr, "Error: Failed to create output directory.\n");
+        fprintf(stderr, "Error: Failed to create output directory '%s': %s\n", out_dir, strerror(errno));
         free(buffer);
         return 1;
     }
 
     FILE *out = fopen(path, "w");
     if (out == NULL) {
-        fprintf(stderr, "Error: Failed to open output file for writing.\n");
+        fprintf(stderr, "Error: Failed to open output file '%s' for writing: %s\n", path, strerror(errno));
         free(buffer);
         return 1;
     }
 
     char *p = buffer;
-    size_t line_num = 1;
-
     int had_error = 0;
     size_t error_pos_to_report = 0;
 
@@ -361,18 +343,39 @@ int main(int argc, char *argv[]) {
         if (*p == '\n') {
             p++;
         }
-        line_num++;
     }
 
     if (had_error) {
-        out = freopen(path, "w", out);
-        if (out != NULL) {
-            fprintf(out, "ERROR:%zu\n", error_pos_to_report);
+        FILE *new_out = freopen(path, "w", out);
+        if (new_out == NULL) {
+            fprintf(stderr, "Error: Failed to reopen output file for error writing: %s\n", strerror(errno));
+            free(buffer);
+            return 1;
         }
+        out = new_out;
+        fprintf(out, "ERROR:%zu\n", error_pos_to_report);
     }
 
-    fclose(out);
+    if (fclose(out) != 0) {
+        fprintf(stderr, "Error: Failed to close output file '%s': %s\n", path, strerror(errno));
+        free(buffer);
+        return 1;
+    }
+
     free(buffer);
-    
     return 0;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 4) {
+        fprintf(stderr, "Usage: %s -o <out_dir> <input_path>\n", argv[0]);
+        return 1;
+    }
+
+    if (strcmp(argv[1], "-o") != 0) {
+        fprintf(stderr, "Error: Expected '-o' flag as the first argument.\n");
+        return 1;
+    }
+
+    return process_file(argv[3], argv[2]);
 }
