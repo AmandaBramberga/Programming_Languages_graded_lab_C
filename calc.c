@@ -281,8 +281,11 @@ int main(int argc, char *argv[]) {
         while (temp < q && (*temp == ' ' || *temp == '\t')) {
             temp++;
         }
-        
-        if (temp < q) {
+
+        // Why check the first non-blank character: allows indented comments (e.g. "  # ...") to be correctly recognized as comments rather than syntax errors.
+        // Why comment characters count toward positions with no special code: the buffer pointer indexes the entire file stream continuously, so character offsets naturally advance past comments.
+        // Why comment lines take the same path as blank lines: ensures pointers and line counters always advance properly, preventing infinite loops or hangs.
+        if (temp < q && *temp != '#') {
             long long line_result = 0;
             size_t err_pos = 0;
 
