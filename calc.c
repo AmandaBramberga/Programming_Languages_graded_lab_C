@@ -1,6 +1,7 @@
 // Name: Amanda Laima Lastname: Bramberga StudentID: 251RDC071
+
 // Compile with: gcc -O2 -Wall -Wextra -std=c17 -o calc calc.c -lm
-// Resources used: <every AI tool, website and book you used; details in comments where you used them>
+// Resources used: Claude (Anthropic), chat history link: https://claude.ai/share/1d7b117b-eb66-4587-aef5-b26c97065c32 ; details in comments where used.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,12 +10,16 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <math.h>
+#include <dirent.h>
 
 #define NAME "amanda"
 #define LAST_NAME "bramberga"
 #define STUDENT_ID "251rdc071"
 #define USAGE "Usage: calc [-d DIR | --dir DIR] [-o OUTDIR | --output-dir OUTDIR] [input.txt]\n"
 
+// Whole file in one buffer, so error positions are just offsets into it.
+// AI (Claude): prompt "start with grade 4 on how to calculate integers with + and -".
+//   I used its idea of reading the whole file at once: fopen "rb", fseek/ftell/rewind, malloc(size + 1), fread, '\0'.
 char *read_file(const char *path, size_t *out_len) {
     FILE *in = fopen(path, "rb");
     if (in == NULL) {
@@ -54,9 +59,25 @@ char *read_file(const char *path, size_t *out_len) {
     return buffer;
 }
 
-// Forward declaration needed because primary and expr call each other recursively.
+// Grammar (from the lab handout hint):
+//   expr    := term  { ('+' | '-') term }
+//   term    := power { ('*' | '/') power }
+//   power   := primary [ '**' power ]
+//   primary := NUMBER | '(' expr ')'
+// Each level calls the tighter one, so tighter operators are solved first.
+// Positions: every function gets `buffer`, so position = pointer - buffer + 1
+// (1-based). Newlines and comments count because the buffer is never cut up.
+ 
+// primary and expr call each other, so C needs this declaration first.
+// AI (Claude): prompt "can you guide me through the steps for garde 7".
+//   I used its idea of a prototype for expr above primary.
 int expr(const char **p, const char *buffer, long long *result, size_t *err_pos);
 
+// AI (Claude): prompt "start with grade 4 on how to calculate integers with + and -".
+//   I used its idea of skipping spaces and tabs before reading a token.
+// AI (Claude): prompt "yes so i am ready to do those things for grade 5, guide me through how you already did it before".
+//   I used its point that skip_blanks must skip only spaces and tabs, never '\n', so a missing operand at the end of a line
+//   is not pushed onto the next line.
 void skip_blanks(const char **p) {
     while (**p == ' ' || **p == '\t') {
         (*p)++;
@@ -72,11 +93,17 @@ long long read_number(const char **p) {
     return value;
 }
 
-// primary is the only place that decides "an operand must start here", so every missing-operand error is detected in exactly one spot.
-// Why in primary: parens bind tightest, making a bracketed block a single operand.
-// Why expr/term stop quietly: they only look for their operators and ignore ')' naturally.
-// Why missing ) hits newline: expr reads to the end, leaving primary stranded at the line break.
-// Why extra ) is caught by leftover check: inner parsers ignore it, leaving eval_line to flag trailing junk.
+// Only primary decides "an operand must start here", so all missing-operand
+// errors are caught in this one spot. Brackets bind tightest, so (...) is one operand.
+// A missing ) is found here at the line break; an extra ) is left for eval_line.
+// AI (Claude): prompt "yes so i am ready to do those things for grade 5, guide me through how you already did it before".
+//   I used its idea of checking for a digit after skipping blanks and reporting the error at the current pointer.
+// AI (Claude): prompt "how do i do it now for grade 6  which are * and / with precedence; division by zero".
+//   I used its idea of a primary function that skips blanks, reports the error at the current position if there is no digit,
+//   and then calls read_number.
+// AI (Claude): prompt "can you guide me through the steps for garde 7".
+//   I used its idea of handling '(' in primary: call expr inside the brackets, skip blanks before ')',
+//   and check the inner result first so an error inside the brackets is reported where it happens.
 int primary(const char **p, const char *buffer, long long *value, size_t *err_pos) {
     skip_blanks(p);
 
@@ -107,8 +134,10 @@ int primary(const char **p, const char *buffer, long long *value, size_t *err_po
     return 0;
 }
 
-// Why squaring instead of a loop: steps scale with the exponent's bit length, not its size, making huge powers instant.
-// Why skip the final squaring: avoids unnecessary overflow traps on an iteration whose result is never used.
+// Squaring instead of a loop, so huge exponents take few steps.
+// The last squaring is skipped because it's never used and could overflow.
+// AI (Claude): prompt "guide me through and give the idea for ** (right-associative, negative-exponent error); # comment lines and blank lines".
+//   I used its idea of exponentiation by squaring, and of not squaring the base after the last bit.
 static long long int_pow(long long base, long long exp) {
     long long res = 1;
     long long b = base;
@@ -126,8 +155,10 @@ static long long int_pow(long long base, long long exp) {
     return res;
 }
 
-// Why power calls itself: recursion provides right-associativity for exponentiation (e.g. 2 ** 3 ** 2 evaluates as 2 ** (3 ** 2)).
-// Why exponent's start pointer is saved: negative or missing exponent errors point precisely to the start of the exponent operand.
+// power calls itself for the exponent, so 2 ** 3 ** 2 is 2 ** (3 ** 2): right-associative.
+// AI (Claude): prompt "guide me through and give the idea for ** (right-associative, negative-exponent error); # comment lines and blank lines".
+//   I used its idea of power calling itself for the exponent (right-associative), checking for two adjacent stars,
+//   and saving the exponent's start pointer for the negative-exponent error.
 int power(const char **p, const char *buffer, long long *result, size_t *err_pos) {
     long long base = 0;
     if (primary(p, buffer, &base, err_pos) != 0) {
@@ -136,12 +167,14 @@ int power(const char **p, const char *buffer, long long *result, size_t *err_pos
 
     skip_blanks(p);
     if (**p == '*') {
+        // A single * is multiplication (term's job), so put it back.
         const char *first_star = *p;
         (*p)++;
         if (**p == '*') {
             (*p)++;
             
             skip_blanks(p);
+            // Handout: a negative exponent is reported at the exponent's start, so save it before parsing.
             const char *exp_pos = *p;
 
             long long exp = 0;
@@ -165,9 +198,13 @@ int power(const char **p, const char *buffer, long long *result, size_t *err_pos
     return 0;
 }
 
-// Why term calls power: ensures ** binds tighter than * and /.
-// Left-to-right works because the loop folds each term immediately, making 100 / 7 / 2 evaluate as (100 / 7) / 2.
-// Save operand_pos because division by zero needs to point to the start of the divisor operand, not the slash operator.
+// term calls power so ** binds tighter than * and /.
+// Folding each operand right away gives left-to-right: 100 / 7 / 2 = (100 / 7) / 2.
+// AI (Claude): prompt "how do i do it now for grade 6  which are * and / with precedence; division by zero".
+//   I used its idea of a term function between expr and primary: a loop for * and /, with the pointer saved before the
+//   right operand so division by zero is reported at its start.
+// AI (Claude): prompt "guide me through and give the idea for ** (right-associative, negative-exponent error); # comment lines and blank lines".
+//   I used its idea that term calls power instead of primary.
 int term(const char **p, const char *buffer, long long *result, size_t *err_pos) {
     long long total = 0;
     
@@ -189,6 +226,8 @@ int term(const char **p, const char *buffer, long long *result, size_t *err_pos)
         (*p)++;
 
         skip_blanks(p);
+
+        // Handout: division by zero is reported at the divisor's start, so save it first.
         const char *op_ptr = *p;
 
         long long n = 0;
@@ -211,7 +250,11 @@ int term(const char **p, const char *buffer, long long *result, size_t *err_pos)
     return 0;
 }
 
-// expr evaluates operator chains, delegating operand parsing down to primary.
+// expr calls term so * and / are finished before + and -; same loop keeps them left-to-right.
+// AI (Claude): prompt "start with grade 4 on how to calculate integers with + and -".
+//   I used its idea of a left-to-right loop, so 2 + 5 - 3 is (2 + 5) - 3.
+// AI (Claude): prompt "how do i do it now for grade 6  which are * and / with precedence; division by zero".
+//   I used its idea of one function per precedence level, so expr calls term for its operands.
 int expr(const char **p, const char *buffer, long long *result, size_t *err_pos) {
     long long total = 0;
     
@@ -248,7 +291,13 @@ int expr(const char **p, const char *buffer, long long *result, size_t *err_pos)
     return 0;
 }
 
-// eval_line is the only place that checks for leftover input, which is what catches unexpected tokens.
+// The only leftover check: anything after expr (like an extra ')') is an error at that character.
+// AI (Claude): prompt "yes so i am ready to do those things for grade 5, guide me through how you already did it before".
+//   I used its idea of returning a status and passing the result and the error position back through pointers.
+// AI (Claude): prompt "how do i do it now for grade 6  which are * and / with precedence; division by zero".
+//   I used its idea of eval_line calling expr and then checking that the line really ended (the leftover check).
+// AI (Claude): prompt "can you guide me through the steps for garde 7".
+//   I used its explanation of why an extra ')' is caught by this leftover check.
 int eval_line(const char *p, const char *buffer, long long *result, size_t *err_pos) {
     long long total = 0;
     
@@ -266,7 +315,12 @@ int eval_line(const char *p, const char *buffer, long long *result, size_t *err_
     return 0;
 }
 
-// Why the base-name helper strips trailing slashes for directories: otherwise paths ending in slashes (like labs/) would evaluate to an empty base name.
+// Strip trailing slashes for directories, or "labs/" would give an empty name.
+// AI (Claude): prompt "is this correct?" (sent with a screenshot).
+//   I used its idea of cutting off the folder part and ".txt" by length instead of copying the name.
+//   I used its point about stripping trailing slashes in directory mode.
+// AI (Claude): prompt "how do i do the grade 9, guide me through give an idea".
+//   I used its idea of a helper that returns a pointer and a length into the original string, so nothing is copied.
 const char *get_basename(const char *path, size_t *out_len, int is_dir) {
     size_t len = strlen(path);
     
@@ -296,7 +350,18 @@ const char *get_basename(const char *path, size_t *out_len, int is_dir) {
     return base;
 }
 
-// Why process_file returns success (0) even for an ERROR: result: calculation errors are normal outputs, whereas non-zero is reserved for system/IO failures.
+// Returns 0 even for an ERROR result: that's a normal output. Non-zero is for I/O problems only.
+// AI (Claude): prompt "start with grade 4 on how to calculate integers with + and -".
+//   I used its ideas of walking one buffer with a pointer (no line copies), building the output name with snprintf,
+//   and treating mkdir's EEXIST as fine.
+// AI (Claude): prompt "yes so i am ready to do those things for grade 5, guide me through how you already did it before".
+//   I used its ideas of a had_error flag that breaks out of the loop (so cleanup still runs) and, on an error, reopening
+//   the output file with "w" to empty it and writing only ERROR:<pos>.
+// AI (Claude): prompt "guide me through and give the idea for ** (right-associative, negative-exponent error); # comment lines and blank lines".
+//   I used its idea of skipping a line whose first non-blank character is '#', so comment characters still count for positions.
+// AI (Claude): prompt "how do i do the grade 9, guide me through give an idea".
+//   I used its idea of moving the work for one input file into process_file, which returns 0 on success
+//   (even for an ERROR: result) and non-zero for real failures.
 int process_file(const char *input_path, const char *out_dir) {
     size_t len = 0;
     char *buffer = read_file(input_path, &len);
@@ -345,9 +410,8 @@ int process_file(const char *input_path, const char *out_dir) {
             temp++;
         }
 
-        // Why check the first non-blank character: allows indented comments (e.g. "  # ...") to be correctly recognized as comments rather than syntax errors.
-        // Why comment characters count toward positions with no special code: the buffer pointer indexes the entire file stream continuously, so character offsets naturally advance past comments.
-        // Why comment lines take the same path as blank lines: ensures pointers and line counters always advance properly, preventing infinite loops or hangs.
+        // Check the first non-blank char so an indented "  # ..." is still a comment.
+        // Comment and blank lines skip evaluation but p still advances, so no infinite loop.
         if (temp < q && *temp != '#') {
             long long line_result = 0;
             size_t err_pos = 0;
@@ -367,6 +431,7 @@ int process_file(const char *input_path, const char *out_dir) {
         }
     }
 
+    // On error the file must hold only ERROR:<pos>, so reopen with "w" to wipe earlier results.
     if (had_error) {
         FILE *new_out = freopen(path, "w", out);
         if (new_out == NULL) {
@@ -388,6 +453,65 @@ int process_file(const char *input_path, const char *out_dir) {
     return 0;
 }
 
+// S_ISREG: only regular files, so a folder named x.txt is ignored.
+// One bad file sets rc = 1 but the rest still run; the exit code shows the failure.
+// readdir order doesn't matter: each input has its own output file.
+// AI (Claude): prompt "how do i do the grade 9, guide me through give an idea".
+//   I used its idea for the directory loop: opendir/readdir/closedir, only names ending in .txt, the full path built with
+//   snprintf (checked for truncation), stat + S_ISREG, and continuing after a failing file and returning non-zero at the end.
+int process_dir(const char *dir_path, const char *out_dir) {
+    DIR *dir = opendir(dir_path);
+    if (dir == NULL) {
+        fprintf(stderr, "Error: Failed to open directory '%s': %s\n", dir_path, strerror(errno));
+        return 1;
+    }
+
+    if (mkdir(out_dir, 0755) != 0 && errno != EEXIST) {
+        fprintf(stderr, "Error: Failed to create output directory '%s': %s\n", out_dir, strerror(errno));
+        closedir(dir);
+        return 1;
+    }
+
+    int rc = 0;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        const char *name = entry->d_name;
+        size_t name_len = strlen(name);
+
+        if (name_len <= 4 || strcmp(name + name_len - 4, ".txt") != 0) {
+            continue;
+        }
+
+        char full_path[4096];
+        int written = snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, name);
+        if (written < 0 || (size_t)written >= sizeof(full_path)) {
+            fprintf(stderr, "Error: Path truncated for entry '%s'\n", name);
+            rc = 1;
+            continue;
+        }
+
+        struct stat st;
+        if (stat(full_path, &st) != 0) {
+            continue;
+        }
+
+        if (!S_ISREG(st.st_mode)) {
+            continue;
+        }
+
+        if (process_file(full_path, out_dir) != 0) {
+            rc = 1;
+        }
+    }
+
+    closedir(dir);
+    return rc;
+}
+
+// AI (Claude): prompt "how do i do the grade 9, guide me through give an idea".
+//   I used its idea of one loop over argv with three variables starting as NULL (-d folder, output folder, input file),
+//   an unknown '-' option or a second input file being an error, validating after the loop (-d plus a file is a usage error),
+//   and building the default folder name with snprintf.
 int main(int argc, char *argv[]) {
     const char *dir_path = NULL;
     const char *out_dir = NULL;
@@ -406,8 +530,8 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "%s", USAGE);
                 return 1;
             }
-            // Why value options consume the next argument: options take parameters as separate tokens in argv.
-            // Why you check i + 1 < argc first: prevents out-of-bounds memory reads when an option is missing its required value at the end of the argument list.
+            
+            // The value is the next argument; check i + 1 < argc to avoid reading past argv.
             out_dir = argv[++i];
         } else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--dir") == 0) {
             if (i + 1 >= argc) {
@@ -422,7 +546,7 @@ int main(int argc, char *argv[]) {
             }
             dir_path = argv[++i];
         } else if (argv[i][0] == '-') {
-            // Why an unrecognized -something is an error: starting with a hyphen designates a command-line flag rather than a positional filename argument.
+            // A leading '-' means an option, not a file name, so unknown ones are errors.
             fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
             fprintf(stderr, "%s", USAGE);
             return 1;
@@ -436,16 +560,21 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Why validation happens after the loop: ensures option arguments can appear in any order (e.g. file before -o) before checking completeness.
+    // Validate after the loop so options can come in any order.
     if ((dir_path == NULL && input_path == NULL) || (dir_path != NULL && input_path != NULL)) {
         fprintf(stderr, "%s", USAGE);
         return 1;
     }
 
+    // No -o: the handout says the default folder is named after the input (the directory's name with -d).
     if (out_dir == NULL) {
         size_t base_len = 0;
-        const char *base = get_basename(input_path, &base_len, 0);
-        // Why the default folder name omits the last name: it is a spec rule validated by tests.
+        const char *base;
+        if (dir_path != NULL) {
+            base = get_basename(dir_path, &base_len, 1);
+        } else {
+            base = get_basename(input_path, &base_len, 0);
+        }
         int written = snprintf(default_dir, sizeof(default_dir), "%.*s_%s_%s",
                                (int)base_len, base, NAME, STUDENT_ID);
         if (written < 0 || (size_t)written >= sizeof(default_dir)) {
@@ -456,8 +585,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (dir_path != NULL) {
-        fprintf(stderr, "Error: -d / --dir mode not implemented yet.\n");
-        return 1;
+        return process_dir(dir_path, out_dir);
     }
 
     return process_file(input_path, out_dir);
