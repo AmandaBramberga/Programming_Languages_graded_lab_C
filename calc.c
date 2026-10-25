@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <math.h>
 
 #define NAME "amanda"
 #define LAST_NAME "bramberga"
@@ -105,13 +106,71 @@ int primary(const char **p, const char *buffer, long long *value, size_t *err_po
     return 0;
 }
 
-// Term comes first because it binds * and / tighter than + and - by resolving them before expr.
+// Why squaring instead of a loop: steps scale with the exponent's bit length, not its size, making huge powers instant.
+// Why skip the final squaring: avoids unnecessary overflow traps on an iteration whose result is never used.
+static long long int_pow(long long base, long long exp) {
+    long long res = 1;
+    long long b = base;
+    long long e = exp;
+
+    while (e > 0) {
+        if (e % 2 == 1) {
+            res *= b;
+        }
+        e /= 2;
+        if (e > 0) {
+            b *= b;
+        }
+    }
+    return res;
+}
+
+// Why power calls itself: recursion provides right-associativity for exponentiation (e.g. 2 ** 3 ** 2 evaluates as 2 ** (3 ** 2)).
+// Why exponent's start pointer is saved: negative or missing exponent errors point precisely to the start of the exponent operand.
+int power(const char **p, const char *buffer, long long *result, size_t *err_pos) {
+    long long base = 0;
+    if (primary(p, buffer, &base, err_pos) != 0) {
+        return 1;
+    }
+
+    skip_blanks(p);
+    if (**p == '*') {
+        const char *first_star = *p;
+        (*p)++;
+        if (**p == '*') {
+            (*p)++;
+            
+            skip_blanks(p);
+            const char *exp_pos = *p;
+
+            long long exp = 0;
+            if (power(p, buffer, &exp, err_pos) != 0) {
+                return 1;
+            }
+
+            if (exp < 0) {
+                *err_pos = (size_t)(exp_pos - buffer + 1);
+                return 1;
+            }
+
+            *result = int_pow(base, exp);
+            return 0;
+        } else {
+            *p = first_star;
+        }
+    }
+
+    *result = base;
+    return 0;
+}
+
+// Why term calls power: ensures ** binds tighter than * and /.
 // Left-to-right works because the loop folds each term immediately, making 100 / 7 / 2 evaluate as (100 / 7) / 2.
 // Save operand_pos because division by zero needs to point to the start of the divisor operand, not the slash operator.
 int term(const char **p, const char *buffer, long long *result, size_t *err_pos) {
     long long total = 0;
     
-    if (primary(p, buffer, &total, err_pos) != 0) {
+    if (power(p, buffer, &total, err_pos) != 0) {
         return 1;
     }
 
@@ -132,7 +191,7 @@ int term(const char **p, const char *buffer, long long *result, size_t *err_pos)
         const char *op_ptr = *p;
 
         long long n = 0;
-        if (primary(p, buffer, &n, err_pos) != 0) {
+        if (power(p, buffer, &n, err_pos) != 0) {
             return 1;
         }
 
